@@ -77,10 +77,7 @@ def saveArticle(db, s, pageId):
             'pdf': savePDF(s, pageId, selectOne(d, 'span.boxItem a', text=False))})
         print("Saving '{}' with {} images [{}]".format(title, len(images), pageId))
     except LookupError as err:
-        print("Keine Ergebnisse mit dem Selektor '{}' auf der Seite 'https://bib-jena.genios.de/document/{}' gefunden".format(err, pageId))
-        saveArticle.errors += 1
-        if saveArticle.errors > MAX_ERRORS:
-            raise Exception("Too many errors, may be logged out?")
+        raise LookupError("Keine Ergebnisse mit dem Selektor '{}' auf der Seite 'https://bib-jena.genios.de/document/{}' gefunden".format(err, pageId))
 
 
 
@@ -105,10 +102,18 @@ def getPageId(articleRow):
     return articleRow['class'][0][5:]
 
 
-saveArticle.errors = 0
 if __name__ == '__main__':
+    errors = 0
     db = database('admin', 'otz')
     s = login('L0075062', '14092010')
     for page_id in map(getPageId, loadTOC(s)):
         if page_id not in db:
-            saveArticle(db, s, page_id)
+            try:
+                saveArticle(db, s, page_id)
+            except LookupError as err:
+                print(err)
+                errors += 1
+                if errors > MAX_ERRORS:
+                    raise OverflowError("Too many errors")
+                s = login('L0075062', '14092010')
+                saveArticle(db, s, page_id)
