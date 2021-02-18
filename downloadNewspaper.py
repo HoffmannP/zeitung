@@ -117,8 +117,6 @@ def getFullAusgabe(session, ausgabe):
     pdf_pages = {}
     pages = getAllPages(session)
     for number in sorted(iter(pages.keys())):
-        if number < 21:
-            continue
         if len(pages[number]) == 1:
             page_id = pages[number].popitem()[1]
             meta = articleMetadata(session, page_id)
@@ -137,12 +135,11 @@ def getFullAusgabe(session, ausgabe):
                 pdf_pages[number] = getPdfPage(session, page_id, meta['pdf'])
                 found = True
                 break
-            ausgaben[meta['ausgabe']] = { 'page_id': page_id, 'link': meta['pdf'] }
+            ausgaben[meta['ausgabe']] = { 'page_id': page_id, 'pdf': meta['pdf'] }
         if found:
             continue
-        print(f'Seite {number} {len(ausgaben)} Ausgaben vorhanden {meta["ausgabe"]} gewählt', ausgaben.keys())
+        print(f'Seite {number} {len(ausgaben)} Ausgaben vorhanden {DEFAULT_AUSGABE} gewählt', ausgaben.keys())
         ausgabe = ausgaben[DEFAULT_AUSGABE.lower()]
-        print(ausgabe)
         pdf_pages[number] = getPdfPage(session, ausgabe['page_id'], ausgabe['pdf'])
     return pdf_pages
 
@@ -163,7 +160,7 @@ if __name__ == '__main__':
         TODAY = datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
     else:
         TODAY = datetime.datetime.now()
-    DEFAULT_AUSGABE = 'schleiz'
+    DEFAULT_AUSGABE = 'Schleiz'
     ausgabe = 'Jena'
     session = login('L0075062', '14092010')
     pages = getFullAusgabe(session, ausgabe)
