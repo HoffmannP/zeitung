@@ -1,2 +1,5 @@
 __pycache__
+build
+dist
 OTZ_Jena_18.02.2021.pdf
+*.spec
