@@ -9,6 +9,9 @@ import PyPDF2.generic as pdfGeneric
 import PyPDF2.utils as pdfUtils
 import requests
 import sys
+import threading
+import json
+
 
 def prelogin():
     session = requests.Session()
@@ -33,7 +36,7 @@ def login (username, password):
     return session
 
 def loadTOC(session):
-    dom = readDom(session, f'https://bib-jena.genios.de/toc_list/OTZ?target=OTZ&issueName=Heft%2B{TODAY.strftime("%d.%m.%Y")}&max=500')
+    dom = readDom(session, f'https://bib-jena.genios.de/toc_list/OTZ/{PUBLISH_DATE.strftime("%Y")}/DT%3D{PUBLISH_DATE.strftime("%Y%m%d")}/Heft%2B{PUBLISH_DATE.strftime("%d.%m.%Y")}/OTZ?max=500')
     return dom.select('tr[class^="item_OTZ__"]')
 
 def readDom(s, u):
@@ -60,13 +63,18 @@ def selectOne(d, selector, text=True, lenient=False):
         return result[0].text.strip()
     return result[0]
 
-def articleMetadata(session, page_id):
+def articleMetadata(session, page_id, retry=0):
     dom = readDom(session, 'https://bib-jena.genios.de/document/{}'.format(page_id))
     try:
         ausgabe = selectOne(dom, 'tr:nth-child(3) td.boxFirst + td').lower()
         link = selectOne(dom, 'span.boxItem a', text=False)['id']
     except LookupError as err:
-        raise LookupError(f'Keine Ergebnisse mit dem Selektor "{err}" auf der Seite "https://bib-jena.genios.de/document/{page_id}"')
+        if retry < 2:
+            print(f'Versuche "https://bib-jena.genios.de/document/{page_id}" erneut')
+            return articleMetadata(session, page_id, retry=retry+1)
+        print(f'Keine Ergebnisse mit dem Selektor "{err}" auf der Seite pageId {page_id}')
+        ausgabe = "Unknown"
+        link = False
     return {
         'ausgabe': ausgabe,
         'pdf': link}
@@ -116,52 +124,62 @@ def getFullAusgabe(session, ausgabe):
     ausgabe = ausgabe.lower()
     pdf_pages = {}
     pages = getAllPages(session)
-    for number in sorted(iter(pages.keys())):
-        if len(pages[number]) == 1:
-            page_id = pages[number].popitem()[1]
-            meta = articleMetadata(session, page_id)
-            if meta['ausgabe'] == ausgabe:
-                print(f'Seite {number} Ausgabe {ausgabe} gefunden')
-            else:
-                print(f'Seite {number} eine Ausgabe vorhanden: {meta["ausgabe"]}')
-            pdf_pages[number] = getPdfPage(session, page_id, meta['pdf'])
-            continue
-        ausgaben = {}
-        found = False
-        for page_id in pages[number].values():
-            meta = articleMetadata(session, page_id)
-            if meta['ausgabe'] == ausgabe:
-                print(f'Seite {number} Ausgabe {ausgabe} gefunden')
-                pdf_pages[number] = getPdfPage(session, page_id, meta['pdf'])
-                found = True
-                break
-            ausgaben[meta['ausgabe']] = { 'page_id': page_id, 'pdf': meta['pdf'] }
-        if found:
-            continue
-        print(f'Seite {number} {len(ausgaben)} Ausgaben vorhanden {DEFAULT_AUSGABE} gewählt', ausgaben.keys())
-        ausgabe = ausgaben[DEFAULT_AUSGABE.lower()]
-        pdf_pages[number] = getPdfPage(session, ausgabe['page_id'], ausgabe['pdf'])
+    threads = []
+    for number, page in pages.items():
+        t = threading.Thread(target=findSeite, args=(number, pdf_pages, session, page, ausgabe))
+        t.start()
+        threads.append(t)
+    for thread in threads:
+        thread.join()
     return pdf_pages
+
+def findSeite(number, pdf_pages, session, pages, ausgabe):
+    page, text = getSeite(session, pages, ausgabe)
+    print(f'Seite {number}: {text}')
+    pdf_pages[number] = page
+
+def getSeite(session, pages, ausgabe):
+    if len(pages) == 1:
+        page_id = pages.popitem()[1]
+        meta = articleMetadata(session, page_id)
+        text = f'Ausgabe {ausgabe} vorhanden' if meta['ausgabe'] == ausgabe else f'nur Ausgabe {meta["ausgabe"]} vorhanden'
+        return getPdfPage(session, page_id, meta['pdf']), text
+
+    ausgaben = {}
+    for page_id in pages.values():
+        meta = articleMetadata(session, page_id)
+        ausgaben[meta['ausgabe']] = { 'page_id': page_id, 'pdf': meta['pdf'] }
+        if meta['ausgabe'] == ausgabe:
+            return getPdfPage(session, page_id, meta['pdf']), f'Ausgabe {ausgabe} vorhanden'
+
+    text = f'Ausgaben {DEFAULT_AUSGABE} vorhanden (aus {len(ausgaben)} gewählt)'
+    selected = DEFAULT_AUSGABE.lower()
+    if selected in ausgaben:
+        ausgabe = ausgaben[selected]
+    else:
+        selected, ausgabe = ausgaben.popitem()
+    return getPdfPage(session, ausgabe['page_id'], ausgabe['pdf']), text
 
 def bindPages(pages, ausgabe):
     output = pyPdf.PdfFileWriter()
     print('Hinzufügen der Seiten ', end='')
-    for page_nr in pages:
+    for page_nr in sorted(iter(pages.keys())):
         print(f'{page_nr} ', end='')
         output.addPage(pages[page_nr])
     print('(fertig)')
-    output_name = f'OTZ_{TODAY.strftime("%Y-%m-%d")}_{ausgabe}.pdf'
+    output_name = f'OTZ_{PUBLISH_DATE.strftime("%Y-%m-%d")}_{ausgabe}.pdf'
     with open(output_name, 'wb') as f:
         output.write(f)
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
-        TODAY = datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
+        PUBLISH_DATE = datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
     else:
-        TODAY = datetime.datetime.now()
+        PUBLISH_DATE = datetime.datetime.now()
     DEFAULT_AUSGABE = 'Schleiz'
     ausgabe = 'Jena'
-    session = login('L0075062', '14092010')
+    with open('login.json', 'r') as login_data:
+        session = login(**json.load(login_data))
     pages = getFullAusgabe(session, ausgabe)
     bindPages(pages, ausgabe)
