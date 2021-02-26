@@ -9,7 +9,8 @@ import PyPDF2.generic as pdfGeneric
 import PyPDF2.utils as pdfUtils
 import requests
 import sys
-import threading
+import time
+# import threading
 import json
 
 
@@ -69,8 +70,9 @@ def articleMetadata(session, page_id, retry=0):
         ausgabe = selectOne(dom, 'tr:nth-child(3) td.boxFirst + td').lower()
         link = selectOne(dom, 'span.boxItem a', text=False)['id']
     except LookupError as err:
-        if retry < 2:
-            print(f'Versuche "https://bib-jena.genios.de/document/{page_id}" erneut')
+        if retry < 3:
+            print(f'Versuche "https://bib-jena.genios.de/document/{page_id}" zum {retry+1}ten Mal')
+            time.sleep((retry +1) ** 2)
             return articleMetadata(session, page_id, retry=retry+1)
         print(f'Keine Ergebnisse mit dem Selektor "{err}" auf der Seite pageId {page_id}')
         ausgabe = "Unknown"
@@ -124,6 +126,7 @@ def getFullAusgabe(session, ausgabe):
     ausgabe = ausgabe.lower()
     pdf_pages = {}
     pages = getAllPages(session)
+    """
     threads = []
     for number, page in pages.items():
         t = threading.Thread(target=findSeite, args=(number, pdf_pages, session, page, ausgabe))
@@ -131,6 +134,9 @@ def getFullAusgabe(session, ausgabe):
         threads.append(t)
     for thread in threads:
         thread.join()
+    """
+    for number, page in pages.items():
+        findSeite(number, pdf_pages, session, page, ausgabe)
     return pdf_pages
 
 def findSeite(number, pdf_pages, session, pages, ausgabe):
