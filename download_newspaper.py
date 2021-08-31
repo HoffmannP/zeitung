@@ -169,7 +169,7 @@ def get_seite(session_object, ausgaben_page, ausgabe):
         return get_pdf_page(session_object, page_id, meta['pdf']), text
 
     ausgaben = {}
-    for page_id in pages.values():
+    for page_id in ausgaben_page.values():
         meta = article_metadata(session, page_id)
         ausgaben[meta['ausgabe']] = {'page_id': page_id, 'pdf': meta['pdf']}
         if meta['ausgabe'] == ausgabe:
