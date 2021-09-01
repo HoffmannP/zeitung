@@ -6,9 +6,10 @@ verschiedenen PDF-Seiten in ein ganzes PDF um
 
 import datetime
 import io
-import sys
-import time
 import json
+import sys
+import tempfile
+import time
 import bs4
 import requests
 import PyPDF2 as pyPdf
@@ -80,27 +81,34 @@ def select_one(dom, selector, text=True, lenient=False):
         return result[0].text.strip()
     return result[0]
 
-def article_metadata(session_object, page_id, retry=0):
+def article_metadata(session_object, page_id):
     """Gibt Link zum PDF und Ausgabeort eines Zeitungsartikel zurück"""
-    dom = read_dom(
-        session_object,
-        'https://bib-jena.genios.de/document/{}'.format(page_id),
-        reason='loading Metadata')
-    try:
-        ausgabe_ort = select_one(dom, 'tr:nth-child(3) td.boxFirst + td').lower()
-        link = select_one(dom, 'span.boxItem a', text=False)['id']
-    except LookupError as err:
-        print(str(dom))
-        if retry < 3:
+    retry = 0
+    while retry <1:
+        try:
+            dom = read_dom(
+                session_object,
+                f'https://bib-jena.genios.de/document/{page_id}',
+                reason='loading Metadata')
+            ausgabe_ort = select_one(dom, 'tr:nth-child(3) td.boxFirst + td').lower()
+            link = select_one(dom, 'span.boxItem a', text=False)['id']
+            return {
+            'ausgabe': ausgabe_ort,
+            'pdf': link}
+        except LookupError as error:
+            if str(dom).find('Ihre Kennung hat nicht die Berechtigung diese Datenbank abzurufen.') == -1:
+                debug_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+                debug_file.write(str(error))
+                debug_file.write(20 * '_*_ ')
+                debug_file.write(str(dom))
+                debug_file.close()
+                print(f'Error {str(error)} in {debug_file.name}')
+                raise LookupError
+            print('Ihre Kennung hat nicht die Berechtigung diese Datenbank abzurufen.')
+            retry += 1
             print(f'Versuche "https://bib-jena.genios.de/document/{page_id}" zum {retry+1}ten Mal')
-            time.sleep((retry +1) ** 2)
-            return article_metadata(session_object, page_id, retry=retry+1)
-        print(f'Keine Ergebnisse mit dem Selektor "{err}" auf der Seite pageId {page_id}')
-        ausgabe_ort = "Unknown"
-        link = False
-    return {
-        'ausgabe': ausgabe_ort,
-        'pdf': link}
+            time.sleep(retry ** 2)
+    raise NetworkError
 
 def get_pdf_page(session_object, page_id, link):
     """Gibt PDF-Seitenobjekt einer Seite zurück"""
@@ -152,9 +160,9 @@ def get_full_ausgabe(session_object, selected_ausgabe):
     pdf_pages = {}
     all_pages = get_all_pages(session_object)
     for number, page in all_pages.items():
-        page, text = get_seite(session_object, all_pages, selected_ausgabe_normalized)
+        selected_page, text = get_seite(session_object, page, selected_ausgabe_normalized)
         print(f'Seite {number}: {text}')
-        pdf_pages[number] = page
+        pdf_pages[number] = selected_page
     return pdf_pages
 
 def get_seite(session_object, ausgaben_page, ausgabe):
