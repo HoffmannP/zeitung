@@ -57,12 +57,16 @@ def load_toc(session_object):
 
 def read_dom(session_object, url, reason='website'):
     """Lädt DOM einer HTML-Seite"""
-    try:
-        html = session_object.get(url).text
-    except requests.exceptions.ConnectionError:
-        print(f'NETWORK ERROR while {reason} ({url})')
-        raise NetworkError
-    return bs4.BeautifulSoup(html, features='lxml')
+    retry = 0
+    while retry < 3:
+        try:
+            html = session_object.get(url).text
+            return bs4.BeautifulSoup(html, features='lxml')
+        except requests.exceptions.ConnectionError:
+            retry += 1
+            continue
+    print(f'3x NETWORK ERROR while {reason} ({url})')
+    raise NetworkError
 
 def get_page_id_nr(article_row):
     """Gibt Seitenzahl eines Zeitungsartikels zurück"""
@@ -103,6 +107,8 @@ def article_metadata(session_object, page_id):
                 debug_file.write(str(dom))
                 debug_file.close()
                 print(f'Error {str(error)} in {debug_file.name}')
+                if retry == 0:
+                    continue
                 raise LookupError
             print('Ihre Kennung hat nicht die Berechtigung diese Datenbank abzurufen.')
             retry += 1
@@ -213,9 +219,15 @@ if __name__ == '__main__':
     AUSGABE = 'Jena'
     with open('login.json', 'r') as login_data:
         session = login(**json.load(login_data))
-    try:
-        pages = get_full_ausgabe(session, AUSGABE)
-    except NetworkError:
-        print('Zweiter Versuch')
-        pages = get_full_ausgabe(session, AUSGABE)
-    bind_seiten(pages, AUSGABE)
+
+    retry = 0
+    while retry < 2:
+        try:
+            pages = get_full_ausgabe(session, AUSGABE)
+        except NetworkError:
+            print('nächster Versuch')
+    if retry >= 2:
+        print("Fehler beim Herunterladen")
+    else:
+        bind_seiten(pages, AUSGABE)
+
