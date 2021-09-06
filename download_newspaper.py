@@ -7,6 +7,7 @@ verschiedenen PDF-Seiten in ein ganzes PDF um
 import datetime
 import io
 import json
+import os
 import sys
 import tempfile
 import time
@@ -108,6 +109,7 @@ def article_metadata(session_object, page_id):
                 debug_file.close()
                 print(f'Error {str(error)} in {debug_file.name}')
                 if retry == 0:
+                    retry += 1
                     continue
                 raise LookupError
             print('Ihre Kennung hat nicht die Berechtigung diese Datenbank abzurufen.')
@@ -215,15 +217,19 @@ if __name__ == '__main__':
         PUBLISH_DATE = datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
     else:
         PUBLISH_DATE = datetime.datetime.now()
+
     DEFAULT_AUSGABE = 'Schleiz'
     AUSGABE = 'Jena'
-    with open('login.json', 'r') as login_data:
+
+    path = os.path.dirname(os.path.realpath(__file__))
+    with open(f'{path}/login.json', 'r') as login_data:
         session = login(**json.load(login_data))
 
     retry = 0
     while retry < 2:
         try:
             pages = get_full_ausgabe(session, AUSGABE)
+            break
         except NetworkError:
             print('nächster Versuch')
     if retry >= 2:
