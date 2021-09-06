@@ -107,7 +107,7 @@ def article_metadata(session_object, page_id):
                 debug_file.write(20 * '_*_ ')
                 debug_file.write(str(dom))
                 debug_file.close()
-                print(f'Error {str(error)} in {debug_file.name}')
+                print(f'Error {str(error)} in {debug_file.name} while getting "https://bib-jena.genios.de/document/{page_id}"')
                 if retry == 0:
                     retry += 1
                     continue
