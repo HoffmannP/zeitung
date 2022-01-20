@@ -21,7 +21,6 @@ import PyPDF2.utils as pdfUtils
 class NetworkError(Exception):
     """Fehler beim Download von Genios."""
 
-
 def prelogin():
     """Eröffnet eine Session vor dem Login."""
     request_session = requests.Session()
@@ -69,11 +68,12 @@ def read_dom(session_object, url, reason='website'):
     print(f'3x NETWORK ERROR while {reason} ({url})')
     raise NetworkError
 
-def get_page_id_nr(article_row):
+def get_page_meta(article_row):
     """Gibt Seitenzahl eines Zeitungsartikels zurück"""
     page_id = article_row['class'][0][5:]
     page_number = int(article_row.contents[6].text[3:])
-    return page_id, page_number
+    page_resort = article_row.select('span')[2].select('span')[0].text[2:]
+    return page_id, page_number, page_resort
 
 def select_one(dom, selector, text=True, lenient=False):
     """Gibt Zielwert des Selektors als Text zurück"""
@@ -151,10 +151,12 @@ def remove_watermark(source):
     page.__setitem__(pdfGeneric.NameObject('/Contents'), content)
     return page
 
-def get_all_pages(session_object):
+def get_all_pages(session_object, selected_resorts = []):
     """Gibt sortierte Liste an Seiten mit Zeitungsartikeln von Ausgaben zurück"""
     all_pages = {}
-    for page_id, number in map(get_page_id_nr, load_toc(session_object)):
+    for page_id, number, ressort in [get_page_meta(page) for page in load_toc(session_object)]:
+        if len(selected_resorts) > 0 and ressort not in selected_resorts:
+            continue
         ausgabe_id = page_id.split('_')[3]
         if number not in all_pages:
             all_pages[number] = {}
@@ -162,14 +164,14 @@ def get_all_pages(session_object):
             all_pages[number][ausgabe_id] = page_id
     return all_pages
 
-def get_full_ausgabe(session_object, selected_ausgabe):
+def get_full_ausgabe(session_object, selected_ausgabe, selected_resorts = []):
     """Stellt eine Zeitungsausgabe eines Ausgabeortes zusammen"""
     selected_ausgabe_normalized = selected_ausgabe.lower()
     pdf_pages = {}
-    all_pages = get_all_pages(session_object)
+    all_pages = get_all_pages(session_object, selected_resorts)
     for number, page in all_pages.items():
         selected_page, text = get_seite(session_object, page, selected_ausgabe_normalized)
-        print(f'Seite {number}: {text}')
+        # print(f'Seite {number}: {text}')
         pdf_pages[number] = selected_page
     return pdf_pages
 
@@ -199,7 +201,7 @@ def get_seite(session_object, ausgaben_page, ausgabe):
         selected, ausgabe = ausgaben.popitem()
     return get_pdf_page(session, ausgabe['page_id'], ausgabe['pdf']), text
 
-def bind_seiten(all_pages, ausgabe):
+def bind_seiten(path, all_pages, ausgabe):
     """Bindet alle PDF-Seitenobjekte zu einem Gesamtdokument zusammen"""
     output = pyPdf.PdfFileWriter()
     print('Hinzufügen der Seiten ', end='')
@@ -207,9 +209,10 @@ def bind_seiten(all_pages, ausgabe):
         print(f'{page_nr} ', end='')
         output.addPage(all_pages[page_nr])
     print('(fertig)')
-    output_name = f'OTZ_{PUBLISH_DATE.strftime("%Y-%m-%d_%a")}_{ausgabe}.pdf'
+    output_name = f'{path}/OTZ_{PUBLISH_DATE.strftime("%Y-%m-%d_%a")}_{ausgabe}.pdf'
     with open(output_name, 'wb') as pdf_file:
         output.write(pdf_file)
+    print(f'Speichere Zeitungsausgabe in {output_name}')
 
 
 if __name__ == '__main__':
@@ -220,11 +223,13 @@ if __name__ == '__main__':
 
     DEFAULT_AUSGABE = 'Schleiz'
     AUSGABE = 'Jena'
+    RESORTS = ['Titel', 'Thüringen', 'Region', 'Lokalnachrichten']
 
     path = os.path.dirname(os.path.realpath(__file__))
     with open(f'{path}/login.json', 'r') as login_data:
         session = login(**json.load(login_data))
 
+    """
     retry = 0
     while retry < 2:
         try:
@@ -235,5 +240,8 @@ if __name__ == '__main__':
     if retry >= 2:
         print("Fehler beim Herunterladen")
     else:
-        bind_seiten(pages, AUSGABE)
+        bind_seiten(path, pages, AUSGABE)
+    """
+    pages = get_full_ausgabe(session, AUSGABE, RESORTS)
+    bind_seiten(path, pages, AUSGABE)
 
