@@ -16,7 +16,6 @@ import requests
 BACKURI = 'www.wiso-net.de'
 ZEITUNG = 'OTZ'
 REGIONAL_EDITION = 'Jena'
-DEFAULT_EDITION = 'Schleiz und Bad Lobenstein'
 GENERIC_RESORT = [
     'Thüringen',
     'Politik',
@@ -39,7 +38,7 @@ MAXTOC = 500
 PDFTK = '/usr/bin/pdftk'
 DIRECTORY = '/home/ber/Unicloud/Zeitung'
 
-publish_date = None  # pylint: disable=C0103
+publish_date = datetime.datetime.now()  # pylint: disable=C0103
 downloads = 0  # pylint: disable=C0103
 
 
@@ -111,6 +110,15 @@ def group_by_page(toclist):
     return pages
 
 
+def editions_from_article(session_object, article):
+    """Download article page with edition information"""
+    dom = read_dom(
+        session_object,
+        f'https://{BACKURI}/document/{article["id"]}')
+    edition_tag = dom.select('.moduleDocumentTable tr:nth-child(3) td:nth-child(2)')[0]
+    return [edition.strip() for edition in edition_tag.text.split(';')]
+
+
 def best_fit(session_object, articles):
     """Selects best edition"""
     num_articles = len(articles)
@@ -135,21 +143,23 @@ def best_fit(session_object, articles):
         suggested_resort = 'REGIONAL_RESORT' if regional_page else 'GENERIC_RESORT'
         print(f'Resort «{resort}» could be «{suggested_resort}»')
 
-    target_edition = REGIONAL_EDITION if regional_page else DEFAULT_EDITION
-    editions = []
-    for article in articles:
-        dom = read_dom(
-            session_object,
-            f'https://{BACKURI}/document/{article["id"]}')
-        edition_tag = dom.select('.moduleDocumentTable tr:nth-child(3) td:nth-child(2)')[0]
-        editions = [edition.strip() for edition in edition_tag.text.split(';')]
-        if target_edition in editions:
-            return {**article, 'edition': target_edition}
-        editions.append({**article, 'edition': '; '.join(editions)})
+    if regional_page and num_articles < 5:
+        regional_page = False
+        print(f'Setting page type to GENERIC as num_articles {num_articles} < 5')
 
-    print(editions)
-    print(f'Did not find target edition {target_edition} ' +
-          f'even though it as {"REGIONAL_RESORT" if regional_page else "GENERIC_RESORT"} {resort}')
+    if not regional_page:
+        editions = editions_from_article(session_object, articles[0])
+        return {**article, 'edition': editions[0]}
+
+    page_editions = []
+    for article in articles:
+        editions = editions_from_article(session_object, article)
+        if REGIONAL_EDITION in editions:
+            return {**article, 'edition': REGIONAL_EDITION}
+        page_editions.append({**article, 'edition': '; '.join(editions)})
+    print(page_editions)
+    print(f'Did not find regional edition {REGIONAL_EDITION} in GENERIC_RESORT {resort}')
+    return {**article, 'edition': editions[0]}
 
 
 def pdf_page(session_object, page_id):
@@ -186,6 +196,6 @@ def main():
 
 
 if __name__ == '__main__':
-    publish_date = datetime.datetime.now() if len(sys.argv) <= 1 else \
-        datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
+    if len(sys.argv) > 1:
+        publish_date = datetime.datetime.strptime(sys.argv[1], '%d.%m.%Y')
     main()
